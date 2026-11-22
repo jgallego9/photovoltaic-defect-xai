@@ -1,0 +1,604 @@
+{
+  "schema_version": 1,
+  "purpose": "Reproduce the historical 37-image crack diagnostic cohort without retaining discarded model checkpoints or full snapshots. This is a model-dependent validation cohort, not an independent sample.",
+  "selection": "Positive validation crack labels missed by all thirteen historical models, each using its own validation F1 threshold.",
+  "reconstruction": "selected = crack_labels.astype(bool) & (crack_probabilities < crack_thresholds).all(axis=1); sorted(ids[selected])",
+  "data": {
+    "path": "data/prepared/pvel6-eda-v1.json",
+    "sha256": "dc9ddea2b9b82e033f1bde1c94052a2a24a695d65bc87ecd5ebcabceae3bb8d9",
+    "data_fingerprint": "2f14794ccc41d8c422b984419118468c9c15db85194a658389de2465e4b99903",
+    "validation_images": 5000,
+    "positive_crack_images": 463
+  },
+  "historical_source": {
+    "notebook": "outputs/snapshots/region-diagnostic-2026-10-28/notebooks/07_region_diagnostic.ipynb",
+    "notebook_sha256": "97b3c4aacd8cf3de69155cb322245de8e0de49ba4dfba96feb8bc036f230e087",
+    "zero_based_cell_index": 8,
+    "cell_id": "15226131",
+    "cell_source_sha256": "cc5a0e632f2803f58cd69dd6ed7520b37a527dc075bb70c9cb76033dd5736ce1",
+    "cell_source": "previous_runs = [\n    PROJECT_ROOT / \"outputs/experiments\" / name\n    for name in (\"efficientnet_b0\", \"convnext_tiny\", \"swin_t\")\n]\nprevious_runs.append(PROJECT_ROOT / \"outputs/refinement/architecture/convnext_tiny_multiscale\")\nprevious_runs.extend(\n    PROJECT_ROOT / \"outputs/refinement/architecture_search\" / name\n    for name in (\"C1_attention\", \"C2_mil\", \"C3_fpn\", \"C4_eca\", \"C5_queries\", \"C6_asl\")\n)\nprevious_runs.extend(\n    PROJECT_ROOT / \"outputs/refinement/sampling_noise_controls\" / name\n    for name in (\"N1_natural_noise\", \"N2_balanced_clean\", \"N3_natural_clean\")\n)\nexpected_val = [record for record in records if record[\"split\"] == \"val\"]\nexpected_ids = [record[\"id\"] for record in expected_val]\nexpected_labels = np.asarray([record[\"labels\"] for record in expected_val])\ncommon_misses = expected_labels[:, 0].astype(bool)\nprevious_hashes = {}\n\n\ndef file_hash(path):\n    with Path(path).open(\"rb\") as stream:\n        return hashlib.file_digest(stream, \"sha256\").hexdigest()\n\n\nfor directory in previous_runs:\n    run = json.loads((directory / \"run.json\").read_text())\n    if (\n        run.get(\"status\") != \"complete\"\n        or run[\"metadata\"][\"data_fingerprint\"] != prepared[\"data_fingerprint\"]\n        or run[\"class_names\"] != list(CLASS_NAMES)\n    ):\n        raise ValueError(\"Previous results must be complete and match the prepared data\")\n    with np.load(directory / \"validation.npz\", allow_pickle=False) as archive:\n        if (\n            archive[\"ids\"].tolist() != expected_ids\n            or not np.array_equal(archive[\"labels\"], expected_labels)\n            or archive[\"logits\"].shape != expected_labels.shape\n            or not np.isfinite(archive[\"logits\"]).all()\n        ):\n            raise ValueError(\"Previous validation predictions are stale or invalid\")\n        scores = torch.from_numpy(archive[\"logits\"]).sigmoid().numpy()[:, 0]\n    common_misses &= scores < run[\"metrics\"][\"thresholds\"][0]\n    for filename in (\"run.json\", \"validation.npz\"):\n        previous_hashes[str((directory / filename).relative_to(PROJECT_ROOT))] = file_hash(\n            directory / filename\n        )\n\nhard_crack_ids = set(np.asarray(expected_ids)[common_misses].tolist())\nclean_crack_ids = {\n    region[\"image_id\"] for region in clean_val_regions if region[\"class_name\"] == \"crack\"\n}\nprint(\"Cracks missed by every previous model:\", len(hard_crack_ids))\nprint(\"Hard images with a clean crack anchor:\", len(hard_crack_ids & clean_crack_ids))\nprint(\"Hard images with overlapping anchors only:\", len(hard_crack_ids - clean_crack_ids))",
+    "protocol_path": "outputs/refinement/region_diagnostic/protocol.json",
+    "protocol_sha256": "2a7d732d38c05e1908cf20b8f2886680fe02d70f6526e486dc38c6b1e02a1f2e",
+    "previous_predictions_sha256": {
+      "outputs/experiments/convnext_tiny/run.json": "78313cb30f29417ae68c48107773000797340c52967b1d63e140a257aa12d3ba",
+      "outputs/experiments/convnext_tiny/validation.npz": "253fcd5237b57bbe5c61e881a49448ca26eea048a501a0de3f3e758d39562e9b",
+      "outputs/experiments/efficientnet_b0/run.json": "2bda30b254ac0ee630b5a4bba835ba9ae2e187da0283f442418b442c6e252747",
+      "outputs/experiments/efficientnet_b0/validation.npz": "e07102f049f4773597bc453e3a8f25de70d7c8d59e438b35ca32d69207ff97d2",
+      "outputs/experiments/swin_t/run.json": "284400ad972e2db19ce35b3e463c7d716274624e45113107f53aa95730999fc5",
+      "outputs/experiments/swin_t/validation.npz": "27bae8d7152fe28f6dce3a39dd87da19dbe70469c732bc43e45914ce7bc5dda6",
+      "outputs/refinement/architecture/convnext_tiny_multiscale/run.json": "30b6f8c71cf4138d828a8aa1d253fe22227e8ddb69dfd60667bdba67de01b333",
+      "outputs/refinement/architecture/convnext_tiny_multiscale/validation.npz": "16888de5e07f0d8215cef1ec7821d543c74af13c9a6fbb86635dea5f66065ff6",
+      "outputs/refinement/architecture_search/C1_attention/run.json": "e8673d189d4fbfbbcebe41a3a8c12db617f9262afbe799fab7843e45208af0cf",
+      "outputs/refinement/architecture_search/C1_attention/validation.npz": "f5fa0f1758fce38093f587713e44adb47da89cf3824663b9f3e9f58018ef6dbe",
+      "outputs/refinement/architecture_search/C2_mil/run.json": "681a6dad6ca4bf4de223bdf4ab75b4116bbc6eb47290f86c681e0f14f18d94bf",
+      "outputs/refinement/architecture_search/C2_mil/validation.npz": "335054207dca6526309b61f55c0b141cf9b98dd1d65adee8c5075a219ae7b02a",
+      "outputs/refinement/architecture_search/C3_fpn/run.json": "a5dde8d0d85e0af23588d94906c9d480de5d062eee2218653e283ad767c7a263",
+      "outputs/refinement/architecture_search/C3_fpn/validation.npz": "c2888d1727ec44d522137fa8ebc70f7c99c36ebf38cbe55cff5ebe53eb2c5034",
+      "outputs/refinement/architecture_search/C4_eca/run.json": "aaac3ba0382322c4d3177027fba16679f3ce15285f73fe33743d314c42ea03b2",
+      "outputs/refinement/architecture_search/C4_eca/validation.npz": "dc57c113ef79667926a9ce61fee0198c8892ae563bc9ff50f8e38286e1993fc1",
+      "outputs/refinement/architecture_search/C5_queries/run.json": "de63465e9a7bf9a526df612516c202b4bb67afd82e92d5527a8636461ad2c1fa",
+      "outputs/refinement/architecture_search/C5_queries/validation.npz": "3ae84ea7a2bb4b7ac746709474f310c4a559b4f37ba9e2714f23e7a6c5c2c2ee",
+      "outputs/refinement/architecture_search/C6_asl/run.json": "a2ee9eed8cdb2864fc6a18a787933f7af184be22c382b5c95fb9bcf7bc6727aa",
+      "outputs/refinement/architecture_search/C6_asl/validation.npz": "c5ac815487fc0d75b2ce2ad3fac56bbb5581352669488b2ba058bc5e3478d1bb",
+      "outputs/refinement/sampling_noise_controls/N1_natural_noise/run.json": "d702826c958af4b5b50a47eb068ec00b3155afecf180857744b99d8400f23350",
+      "outputs/refinement/sampling_noise_controls/N1_natural_noise/validation.npz": "0b10c26c6174c1ce3e6e2baa202de4a49ded31810fc5480ecf04aca91d995762",
+      "outputs/refinement/sampling_noise_controls/N2_balanced_clean/run.json": "37815499fa0bf6f3c761d66bfa62437e437df13bd08381030497352e38fc52a7",
+      "outputs/refinement/sampling_noise_controls/N2_balanced_clean/validation.npz": "364ab471aa893400d0393d3975aa04f2184ee6d7e7c4df489ef32e9385b2ba77",
+      "outputs/refinement/sampling_noise_controls/N3_natural_clean/run.json": "18281f312f340dd58eb1cdb4f63677003c539a021b21561264d217a5ed96e100",
+      "outputs/refinement/sampling_noise_controls/N3_natural_clean/validation.npz": "3123f867e544d46990a598fbd2dde64b146bac6e0ecb377ea2e32770d15e7499"
+    }
+  },
+  "predictions": {
+    "path": "docs/research/evidence/hard-crack-cohort.npz",
+    "sha256": "9faa70a5bf9fe47d854fe356c101cc08c0a7666258e06190a4e01b630bfdb408",
+    "shape": [
+      5000,
+      13
+    ],
+    "column_order": [
+      "efficientnet_b0",
+      "convnext_tiny",
+      "swin_t",
+      "convnext_tiny_multiscale",
+      "C1_attention",
+      "C2_mil",
+      "C3_fpn",
+      "C4_eca",
+      "C5_queries",
+      "C6_asl",
+      "N1_natural_noise",
+      "N2_balanced_clean",
+      "N3_natural_clean"
+    ],
+    "probability_computation": "Original torch.sigmoid over each full saved float32 logit array, on CPU; no neural-network inference.",
+    "logit_dtype": "float32",
+    "probability_dtype": "float32",
+    "scope": "Crack labels and predictions for every validation image; all thirteen columns preserve the complete intersection calculation."
+  },
+  "models": [
+    {
+      "column": 0,
+      "name": "efficientnet_b0",
+      "historical_directory": "outputs/experiments/efficientnet_b0",
+      "crack_threshold": 0.95,
+      "source_files_sha256": {
+        "outputs/experiments/efficientnet_b0/run.json": "2bda30b254ac0ee630b5a4bba835ba9ae2e187da0283f442418b442c6e252747",
+        "outputs/experiments/efficientnet_b0/validation.npz": "e07102f049f4773597bc453e3a8f25de70d7c8d59e438b35ca32d69207ff97d2"
+      },
+      "config": {
+        "amp": true,
+        "batch_size": 8,
+        "device": "cuda",
+        "effective_batch_size": 32,
+        "image_size": 512,
+        "lr_backbone": 0.0001,
+        "lr_head": 0.0005,
+        "max_epochs": 30,
+        "model_name": "efficientnet_b0",
+        "patience": 5,
+        "seed": 42,
+        "warmup_epochs": 2,
+        "weight_decay": 0.01
+      },
+      "best_epoch": 20,
+      "class_names": [
+        "crack",
+        "finger",
+        "black_core",
+        "thick_line",
+        "short_circuit",
+        "horizontal_dislocation"
+      ],
+      "data_fingerprint": "2f14794ccc41d8c422b984419118468c9c15db85194a658389de2465e4b99903"
+    },
+    {
+      "column": 1,
+      "name": "convnext_tiny",
+      "historical_directory": "outputs/experiments/convnext_tiny",
+      "crack_threshold": 0.7999999999999999,
+      "source_files_sha256": {
+        "outputs/experiments/convnext_tiny/run.json": "78313cb30f29417ae68c48107773000797340c52967b1d63e140a257aa12d3ba",
+        "outputs/experiments/convnext_tiny/validation.npz": "253fcd5237b57bbe5c61e881a49448ca26eea048a501a0de3f3e758d39562e9b"
+      },
+      "config": {
+        "amp": true,
+        "batch_size": 8,
+        "device": "cuda",
+        "effective_batch_size": 32,
+        "image_size": 512,
+        "lr_backbone": 0.0001,
+        "lr_head": 0.0005,
+        "max_epochs": 30,
+        "model_name": "convnext_tiny",
+        "patience": 5,
+        "seed": 42,
+        "warmup_epochs": 2,
+        "weight_decay": 0.01
+      },
+      "best_epoch": 11,
+      "class_names": [
+        "crack",
+        "finger",
+        "black_core",
+        "thick_line",
+        "short_circuit",
+        "horizontal_dislocation"
+      ],
+      "data_fingerprint": "2f14794ccc41d8c422b984419118468c9c15db85194a658389de2465e4b99903"
+    },
+    {
+      "column": 2,
+      "name": "swin_t",
+      "historical_directory": "outputs/experiments/swin_t",
+      "crack_threshold": 0.9,
+      "source_files_sha256": {
+        "outputs/experiments/swin_t/run.json": "284400ad972e2db19ce35b3e463c7d716274624e45113107f53aa95730999fc5",
+        "outputs/experiments/swin_t/validation.npz": "27bae8d7152fe28f6dce3a39dd87da19dbe70469c732bc43e45914ce7bc5dda6"
+      },
+      "config": {
+        "amp": true,
+        "batch_size": 8,
+        "device": "cuda",
+        "effective_batch_size": 32,
+        "image_size": 512,
+        "lr_backbone": 0.0001,
+        "lr_head": 0.0005,
+        "max_epochs": 30,
+        "model_name": "swin_t",
+        "patience": 5,
+        "seed": 42,
+        "warmup_epochs": 2,
+        "weight_decay": 0.01
+      },
+      "best_epoch": 26,
+      "class_names": [
+        "crack",
+        "finger",
+        "black_core",
+        "thick_line",
+        "short_circuit",
+        "horizontal_dislocation"
+      ],
+      "data_fingerprint": "2f14794ccc41d8c422b984419118468c9c15db85194a658389de2465e4b99903"
+    },
+    {
+      "column": 3,
+      "name": "convnext_tiny_multiscale",
+      "historical_directory": "outputs/refinement/architecture/convnext_tiny_multiscale",
+      "crack_threshold": 0.7999999999999999,
+      "source_files_sha256": {
+        "outputs/refinement/architecture/convnext_tiny_multiscale/run.json": "30b6f8c71cf4138d828a8aa1d253fe22227e8ddb69dfd60667bdba67de01b333",
+        "outputs/refinement/architecture/convnext_tiny_multiscale/validation.npz": "16888de5e07f0d8215cef1ec7821d543c74af13c9a6fbb86635dea5f66065ff6"
+      },
+      "config": {
+        "amp": true,
+        "batch_size": 8,
+        "device": "cuda",
+        "effective_batch_size": 32,
+        "image_size": 512,
+        "lr_backbone": 0.0001,
+        "lr_head": 0.0005,
+        "max_epochs": 30,
+        "model_name": "convnext_tiny_multiscale",
+        "patience": 5,
+        "seed": 42,
+        "warmup_epochs": 2,
+        "weight_decay": 0.01
+      },
+      "best_epoch": 21,
+      "class_names": [
+        "crack",
+        "finger",
+        "black_core",
+        "thick_line",
+        "short_circuit",
+        "horizontal_dislocation"
+      ],
+      "data_fingerprint": "2f14794ccc41d8c422b984419118468c9c15db85194a658389de2465e4b99903"
+    },
+    {
+      "column": 4,
+      "name": "C1_attention",
+      "historical_directory": "outputs/refinement/architecture_search/C1_attention",
+      "crack_threshold": 0.85,
+      "source_files_sha256": {
+        "outputs/refinement/architecture_search/C1_attention/run.json": "e8673d189d4fbfbbcebe41a3a8c12db617f9262afbe799fab7843e45208af0cf",
+        "outputs/refinement/architecture_search/C1_attention/validation.npz": "f5fa0f1758fce38093f587713e44adb47da89cf3824663b9f3e9f58018ef6dbe"
+      },
+      "config": {
+        "amp": true,
+        "batch_size": 8,
+        "device": "cuda",
+        "effective_batch_size": 32,
+        "image_size": 512,
+        "loss": "bce",
+        "lr_backbone": 0.0001,
+        "lr_head": 0.0005,
+        "max_epochs": 30,
+        "model_name": "convnext_tiny_attention",
+        "patience": 5,
+        "seed": 42,
+        "warmup_epochs": 2,
+        "weight_decay": 0.01
+      },
+      "best_epoch": 13,
+      "class_names": [
+        "crack",
+        "finger",
+        "black_core",
+        "thick_line",
+        "short_circuit",
+        "horizontal_dislocation"
+      ],
+      "data_fingerprint": "2f14794ccc41d8c422b984419118468c9c15db85194a658389de2465e4b99903"
+    },
+    {
+      "column": 5,
+      "name": "C2_mil",
+      "historical_directory": "outputs/refinement/architecture_search/C2_mil",
+      "crack_threshold": 0.85,
+      "source_files_sha256": {
+        "outputs/refinement/architecture_search/C2_mil/run.json": "681a6dad6ca4bf4de223bdf4ab75b4116bbc6eb47290f86c681e0f14f18d94bf",
+        "outputs/refinement/architecture_search/C2_mil/validation.npz": "335054207dca6526309b61f55c0b141cf9b98dd1d65adee8c5075a219ae7b02a"
+      },
+      "config": {
+        "amp": true,
+        "batch_size": 8,
+        "device": "cuda",
+        "effective_batch_size": 32,
+        "image_size": 512,
+        "loss": "bce",
+        "lr_backbone": 0.0001,
+        "lr_head": 0.0005,
+        "max_epochs": 30,
+        "model_name": "convnext_tiny_mil",
+        "patience": 5,
+        "seed": 42,
+        "warmup_epochs": 2,
+        "weight_decay": 0.01
+      },
+      "best_epoch": 19,
+      "class_names": [
+        "crack",
+        "finger",
+        "black_core",
+        "thick_line",
+        "short_circuit",
+        "horizontal_dislocation"
+      ],
+      "data_fingerprint": "2f14794ccc41d8c422b984419118468c9c15db85194a658389de2465e4b99903"
+    },
+    {
+      "column": 6,
+      "name": "C3_fpn",
+      "historical_directory": "outputs/refinement/architecture_search/C3_fpn",
+      "crack_threshold": 0.9,
+      "source_files_sha256": {
+        "outputs/refinement/architecture_search/C3_fpn/run.json": "a5dde8d0d85e0af23588d94906c9d480de5d062eee2218653e283ad767c7a263",
+        "outputs/refinement/architecture_search/C3_fpn/validation.npz": "c2888d1727ec44d522137fa8ebc70f7c99c36ebf38cbe55cff5ebe53eb2c5034"
+      },
+      "config": {
+        "amp": true,
+        "batch_size": 8,
+        "device": "cuda",
+        "effective_batch_size": 32,
+        "image_size": 512,
+        "loss": "bce",
+        "lr_backbone": 0.0001,
+        "lr_head": 0.0005,
+        "max_epochs": 30,
+        "model_name": "convnext_tiny_fpn",
+        "patience": 5,
+        "seed": 42,
+        "warmup_epochs": 2,
+        "weight_decay": 0.01
+      },
+      "best_epoch": 21,
+      "class_names": [
+        "crack",
+        "finger",
+        "black_core",
+        "thick_line",
+        "short_circuit",
+        "horizontal_dislocation"
+      ],
+      "data_fingerprint": "2f14794ccc41d8c422b984419118468c9c15db85194a658389de2465e4b99903"
+    },
+    {
+      "column": 7,
+      "name": "C4_eca",
+      "historical_directory": "outputs/refinement/architecture_search/C4_eca",
+      "crack_threshold": 0.85,
+      "source_files_sha256": {
+        "outputs/refinement/architecture_search/C4_eca/run.json": "aaac3ba0382322c4d3177027fba16679f3ce15285f73fe33743d314c42ea03b2",
+        "outputs/refinement/architecture_search/C4_eca/validation.npz": "dc57c113ef79667926a9ce61fee0198c8892ae563bc9ff50f8e38286e1993fc1"
+      },
+      "config": {
+        "amp": true,
+        "batch_size": 8,
+        "device": "cuda",
+        "effective_batch_size": 32,
+        "image_size": 512,
+        "loss": "bce",
+        "lr_backbone": 0.0001,
+        "lr_head": 0.0005,
+        "max_epochs": 30,
+        "model_name": "convnext_tiny_eca",
+        "patience": 5,
+        "seed": 42,
+        "warmup_epochs": 2,
+        "weight_decay": 0.01
+      },
+      "best_epoch": 21,
+      "class_names": [
+        "crack",
+        "finger",
+        "black_core",
+        "thick_line",
+        "short_circuit",
+        "horizontal_dislocation"
+      ],
+      "data_fingerprint": "2f14794ccc41d8c422b984419118468c9c15db85194a658389de2465e4b99903"
+    },
+    {
+      "column": 8,
+      "name": "C5_queries",
+      "historical_directory": "outputs/refinement/architecture_search/C5_queries",
+      "crack_threshold": 0.85,
+      "source_files_sha256": {
+        "outputs/refinement/architecture_search/C5_queries/run.json": "de63465e9a7bf9a526df612516c202b4bb67afd82e92d5527a8636461ad2c1fa",
+        "outputs/refinement/architecture_search/C5_queries/validation.npz": "3ae84ea7a2bb4b7ac746709474f310c4a559b4f37ba9e2714f23e7a6c5c2c2ee"
+      },
+      "config": {
+        "amp": true,
+        "batch_size": 8,
+        "device": "cuda",
+        "effective_batch_size": 32,
+        "image_size": 512,
+        "loss": "bce",
+        "lr_backbone": 0.0001,
+        "lr_head": 0.0005,
+        "max_epochs": 30,
+        "model_name": "convnext_tiny_queries",
+        "patience": 5,
+        "seed": 42,
+        "warmup_epochs": 2,
+        "weight_decay": 0.01
+      },
+      "best_epoch": 24,
+      "class_names": [
+        "crack",
+        "finger",
+        "black_core",
+        "thick_line",
+        "short_circuit",
+        "horizontal_dislocation"
+      ],
+      "data_fingerprint": "2f14794ccc41d8c422b984419118468c9c15db85194a658389de2465e4b99903"
+    },
+    {
+      "column": 9,
+      "name": "C6_asl",
+      "historical_directory": "outputs/refinement/architecture_search/C6_asl",
+      "crack_threshold": 0.7999999999999999,
+      "source_files_sha256": {
+        "outputs/refinement/architecture_search/C6_asl/run.json": "a2ee9eed8cdb2864fc6a18a787933f7af184be22c382b5c95fb9bcf7bc6727aa",
+        "outputs/refinement/architecture_search/C6_asl/validation.npz": "c5ac815487fc0d75b2ce2ad3fac56bbb5581352669488b2ba058bc5e3478d1bb"
+      },
+      "config": {
+        "amp": true,
+        "batch_size": 8,
+        "clip": 0.05,
+        "device": "cuda",
+        "effective_batch_size": 32,
+        "gamma_neg": 4,
+        "gamma_pos": 1,
+        "image_size": 512,
+        "loss": "asl",
+        "lr_backbone": 0.0001,
+        "lr_head": 0.0005,
+        "max_epochs": 30,
+        "model_name": "convnext_tiny",
+        "patience": 5,
+        "seed": 42,
+        "warmup_epochs": 2,
+        "weight_decay": 0.01
+      },
+      "best_epoch": 10,
+      "class_names": [
+        "crack",
+        "finger",
+        "black_core",
+        "thick_line",
+        "short_circuit",
+        "horizontal_dislocation"
+      ],
+      "data_fingerprint": "2f14794ccc41d8c422b984419118468c9c15db85194a658389de2465e4b99903"
+    },
+    {
+      "column": 10,
+      "name": "N1_natural_noise",
+      "historical_directory": "outputs/refinement/sampling_noise_controls/N1_natural_noise",
+      "crack_threshold": 0.5499999999999999,
+      "source_files_sha256": {
+        "outputs/refinement/sampling_noise_controls/N1_natural_noise/run.json": "d702826c958af4b5b50a47eb068ec00b3155afecf180857744b99d8400f23350",
+        "outputs/refinement/sampling_noise_controls/N1_natural_noise/validation.npz": "0b10c26c6174c1ce3e6e2baa202de4a49ded31810fc5480ecf04aca91d995762"
+      },
+      "config": {
+        "amp": true,
+        "batch_size": 8,
+        "device": "cuda",
+        "effective_batch_size": 32,
+        "image_size": 512,
+        "lr_backbone": 0.0001,
+        "lr_head": 0.0005,
+        "max_epochs": 30,
+        "model_name": "convnext_tiny",
+        "noise_std": 0.015,
+        "patience": 5,
+        "presentations_per_epoch": 10498,
+        "sampling": "natural",
+        "seed": 42,
+        "warmup_epochs": 2,
+        "weight_decay": 0.01
+      },
+      "best_epoch": 14,
+      "class_names": [
+        "crack",
+        "finger",
+        "black_core",
+        "thick_line",
+        "short_circuit",
+        "horizontal_dislocation"
+      ],
+      "data_fingerprint": "2f14794ccc41d8c422b984419118468c9c15db85194a658389de2465e4b99903"
+    },
+    {
+      "column": 11,
+      "name": "N2_balanced_clean",
+      "historical_directory": "outputs/refinement/sampling_noise_controls/N2_balanced_clean",
+      "crack_threshold": 0.65,
+      "source_files_sha256": {
+        "outputs/refinement/sampling_noise_controls/N2_balanced_clean/run.json": "37815499fa0bf6f3c761d66bfa62437e437df13bd08381030497352e38fc52a7",
+        "outputs/refinement/sampling_noise_controls/N2_balanced_clean/validation.npz": "364ab471aa893400d0393d3975aa04f2184ee6d7e7c4df489ef32e9385b2ba77"
+      },
+      "config": {
+        "amp": true,
+        "batch_size": 8,
+        "device": "cuda",
+        "effective_batch_size": 32,
+        "image_size": 512,
+        "lr_backbone": 0.0001,
+        "lr_head": 0.0005,
+        "max_epochs": 30,
+        "model_name": "convnext_tiny",
+        "noise_std": 0.0,
+        "patience": 5,
+        "presentations_per_epoch": 10498,
+        "sampling": "balanced",
+        "seed": 42,
+        "warmup_epochs": 2,
+        "weight_decay": 0.01
+      },
+      "best_epoch": 5,
+      "class_names": [
+        "crack",
+        "finger",
+        "black_core",
+        "thick_line",
+        "short_circuit",
+        "horizontal_dislocation"
+      ],
+      "data_fingerprint": "2f14794ccc41d8c422b984419118468c9c15db85194a658389de2465e4b99903"
+    },
+    {
+      "column": 12,
+      "name": "N3_natural_clean",
+      "historical_directory": "outputs/refinement/sampling_noise_controls/N3_natural_clean",
+      "crack_threshold": 0.35,
+      "source_files_sha256": {
+        "outputs/refinement/sampling_noise_controls/N3_natural_clean/run.json": "18281f312f340dd58eb1cdb4f63677003c539a021b21561264d217a5ed96e100",
+        "outputs/refinement/sampling_noise_controls/N3_natural_clean/validation.npz": "3123f867e544d46990a598fbd2dde64b146bac6e0ecb377ea2e32770d15e7499"
+      },
+      "config": {
+        "amp": true,
+        "batch_size": 8,
+        "device": "cuda",
+        "effective_batch_size": 32,
+        "image_size": 512,
+        "lr_backbone": 0.0001,
+        "lr_head": 0.0005,
+        "max_epochs": 30,
+        "model_name": "convnext_tiny",
+        "noise_std": 0.0,
+        "patience": 5,
+        "presentations_per_epoch": 10498,
+        "sampling": "natural",
+        "seed": 42,
+        "warmup_epochs": 2,
+        "weight_decay": 0.01
+      },
+      "best_epoch": 17,
+      "class_names": [
+        "crack",
+        "finger",
+        "black_core",
+        "thick_line",
+        "short_circuit",
+        "horizontal_dislocation"
+      ],
+      "data_fingerprint": "2f14794ccc41d8c422b984419118468c9c15db85194a658389de2465e4b99903"
+    }
+  ],
+  "cohort": {
+    "path": "outputs/refinement/region_diagnostic/hard_crack_ids.json",
+    "sha256": "5a61b7ea0b3f4c2c8899e64797706b20c36056135ad191ef184d56cebfe29356",
+    "count": 37,
+    "ids": [
+      "sha_040feed920f71ca239657ee0969a851be3c1eace22dec65cb77cc3e105fdf58e",
+      "sha_178ec59684daedc53f6fbd8767b46ddf94d1c1b184b5774f1abad22630374d12",
+      "sha_185094dbf6326db3bff12da0b234b4e858f16972800e7664d899119dbcc8d020",
+      "sha_26fb7b9d09a6052464aaca081239cd196ee6b5b9ae807123e96b6a5d2a87b06a",
+      "sha_279efb1822953fbd4ffb58ac8db3fceaba4810371dd79cd7c102c4651ffae3a5",
+      "sha_2a284807e43e2c9bbabbc4b02794e4ff19915656d186ffeceb8257d9f6e48188",
+      "sha_2e606a11339234ff28bf937693ff44b62b7519eb14c7a2a477e738b26b24e8ff",
+      "sha_2f865b3040ffbb479e65be9bfb854adb24d90db723aa8034dd5f57e9c8d615a0",
+      "sha_335d02fd07437054a93a904ab0798adf0eb134b5b5d3b72d6861bdfaefbbfb34",
+      "sha_33ddeb128c266fbb6ab1983df6833330da9c32492e6e061cc03fd1f65d02e17e",
+      "sha_3baf9f7b0e2f62bc9118e061a5cbd6786a8f28de22a3a082eec2af5e80ee7633",
+      "sha_3c051c72b8c2a07c43761ffcc25a59584f7c2a172ca8f6106272c0cc2eaff99e",
+      "sha_4051df83b9f223ff3aa43e490a587862194a0e5a0381571db2f039869628029f",
+      "sha_4108bd07a800544a6ea6ca0690e0aef326878a163a4acd242e01fcb7b48753fe",
+      "sha_413c3343738ed1ed52e743cd6aaf5bd5a47350accd983d3007d74711940af7b6",
+      "sha_47ad230d80ce246c9a1b7ada662dd5a71ff78f0987a30f973739376fa252c250",
+      "sha_4f3f8a70e84c81de2f03680b254f772aa198dcab765d8573a4aad94f69d086eb",
+      "sha_51835619d625d5668ba4b6a3a09efbef40c8d805e16d60454583cd04057b5872",
+      "sha_5364ee8690ffa8619889cedadb6aab0db261eb7a7d186e11c54d7253928c76ec",
+      "sha_5400978fb90a726f18111117d57f98865ef3d0f6331c3e06cdc3bd8e83a0946b",
+      "sha_5e6e8453a1bc8d87bddf1f7318cc7e0d3c41d18b522912d74937a96e7d4b8c64",
+      "sha_6538c7fede0b7ce6cfbe6b406648c6f44e6947b1c28154c78e4f64655e7d79a1",
+      "sha_6b5d55b2c1cf16b9b7717e21819a58c60b2c8ade31a92fbea8024f1dba1a7496",
+      "sha_82791e0eff29c4a66d02e13e63d2c3084fc6d7860146e67a82712e9a82393f25",
+      "sha_88e35fbce76a0abe2ca1b34a3a4dab9bbd90fd06f2e86b3ee89e5272bd4de90c",
+      "sha_96c71553c6f9a9f218bcdf5ad9bc5299217521927e8ebb4d056ecc6819e2490b",
+      "sha_992bbaa78fd6929ec852933f4a0d88850d419ad4d03999e97ffacd1860c357d7",
+      "sha_9b025f333856ca728267b68006182d950ff7adc995d7915110753be92f4afd3a",
+      "sha_a41a574a37462a6edcf114e60e744d9518a7ad1240b2f5e6e65d6d557c7a9bb3",
+      "sha_ba288c25c32979cce03d452b932d3019bf4853b9000cd6e2ea44f5528c2fae1e",
+      "sha_bc462d24b5427166051d435ab760943c265b13161a6a784a4c06eccd9f2d4365",
+      "sha_d17bcad56804392de191d7b6464c7c655d27f0fc3dc7d54e2e9c101c757192e7",
+      "sha_e4dfb1e42a85fea684a7b47ac234ba8f2a15219d8ef43f87257199b1e037992e",
+      "sha_f3b1a4740878c9661b417e342cf0c5131bf3bada5002dfd9d9c8a556caefd7f7",
+      "sha_f6f95854c051ea7b38ed95c1a4db261d7ed43071fa49c6320d317adb63f9e4d1",
+      "sha_f94d6d4589d770ee8eb176ad23ab8447ee742a0cb60d3d1f08f1ce91d8895fbb",
+      "sha_ffc9d9e3100781504c85885b5f0f8ccb62f071b30add336a09f4ac07551dc1c1"
+    ]
+  },
+  "verification": {
+    "all_26_historical_input_hashes_match_protocol": true,
+    "all_models_complete_and_match_prepared_fingerprint": true,
+    "all_validation_ids_and_labels_match_prepared_records": true,
+    "reconstructed_ids_equal_preserved_cohort": true,
+    "model_training_or_inference_executed": false
+  }
+}
